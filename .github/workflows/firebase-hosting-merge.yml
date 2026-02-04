@@ -9,16 +9,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Fundamentally different: We are not running manual 'cd' or 'npm' blocks.
-      # We are giving the Action the "Keys" to your frontend folder directly.
+      - name: Install and Build
+        working-directory: ./frontend
+        run: |
+          # The Secret: Force npm to install dev-tools like Vite
+          npm install --include=dev
+          # Run the build using npx to ensure the server finds the tool
+          npx vite build
+        env:
+          NODE_ENV: development
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PHONICS_001_29383565_F7EB2 }}
           projectId: phonics-001-29383565-f7eb2
           channelId: live
-          entryPoint: "./frontend"
-          buildCommand: "npm install && npm run build"
-        env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
