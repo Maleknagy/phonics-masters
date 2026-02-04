@@ -9,13 +9,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Clean Build
-        # We use working-directory here to ensure every command stays inside 'frontend'
+      - name: Install and Build
+        # This is the secret sauce: it locks the robot inside the frontend folder
         working-directory: ./frontend
         run: |
           npm install
-          # We use 'npx vite build' because it finds the engine automatically 
-          # even if the folder structure is tricky.
+          # npx finds the vite engine automatically, bypassing the 'No such file' error
           npx vite build
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
