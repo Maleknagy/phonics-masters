@@ -30,9 +30,6 @@ exports.register = async (req, res) => {
     // Generate token
     const token = generateToken(user._id);
 
-    // Remove password from response
-    user.password = undefined;
-
     res.status(201).json({
       success: true,
       message: 'User registered successfully',
@@ -67,7 +64,6 @@ exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Validate email & password
     if (!email || !password) {
       return res.status(400).json({
         success: false,
@@ -75,35 +71,21 @@ exports.login = async (req, res) => {
       });
     }
 
-    // Check for user (include password for comparison)
+    // Include password for comparison
     const user = await User.findOne({ email }).select('+password');
 
-    if (!user) {
+    if (!user || !(await user.matchPassword(password))) {
       return res.status(401).json({
         success: false,
         message: 'Invalid credentials'
       });
     }
 
-    // Check if password matches
-    const isMatch = await user.matchPassword(password);
+    // AMENDMENT: Update last login WITHOUT triggering .save() hooks
+    // This prevents the password from being accidentally re-hashed
+    await User.findByIdAndUpdate(user._id, { lastLogin: Date.now() });
 
-    if (!isMatch) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid credentials'
-      });
-    }
-
-    // Update last login
-    user.lastLogin = Date.now();
-    await user.save();
-
-    // Generate token
     const token = generateToken(user._id);
-
-    // Remove password from response
-    user.password = undefined;
 
     res.status(200).json({
       success: true,
@@ -137,6 +119,7 @@ exports.login = async (req, res) => {
 // @access  Private
 exports.getMe = async (req, res) => {
   try {
+    // req.user is populated by the 'protect' middleware
     const user = await User.findById(req.user.id);
 
     res.status(200).json({
@@ -163,7 +146,7 @@ exports.updateProfile = async (req, res) => {
       avatar: req.body.avatar
     };
 
-    // Remove undefined fields
+    // Remove undefined fields so they aren't overwritten with null
     Object.keys(fieldsToUpdate).forEach(
       key => fieldsToUpdate[key] === undefined && delete fieldsToUpdate[key]
     );
@@ -196,7 +179,6 @@ exports.updatePassword = async (req, res) => {
   try {
     const user = await User.findById(req.user.id).select('+password');
 
-    // Check current password
     const isMatch = await user.matchPassword(req.body.currentPassword);
 
     if (!isMatch) {
@@ -207,7 +189,7 @@ exports.updatePassword = async (req, res) => {
     }
 
     user.password = req.body.newPassword;
-    await user.save();
+    await user.save(); // Here .save() IS wanted to trigger the password hash hook
 
     const token = generateToken(user._id);
 

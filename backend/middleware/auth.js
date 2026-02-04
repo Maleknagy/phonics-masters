@@ -48,13 +48,17 @@ exports.protect = async (req, res, next) => {
   }
 };
 
+// ... (protect function remains the same)
+
 // Authorize based on roles
 exports.authorize = (...roles) => {
   return (req, res, next) => {
-    if (!roles.includes(req.user.role)) {
+    // Note: Make sure your User model actually has a 'role' field 
+    // (e.g., 'user', 'admin')
+    if (!req.user.role || !roles.includes(req.user.role)) {
       return res.status(403).json({
         success: false,
-        message: `User role '${req.user.role}' is not authorized to access this route`
+        message: `User role is not authorized to access this route`
       });
     }
     next();
@@ -62,23 +66,14 @@ exports.authorize = (...roles) => {
 };
 
 // Check if user has premium subscription
-exports.checkPremium = async (req, res, next) => {
-  try {
-    const user = await User.findById(req.user.id);
-
-    if (!user.isPremium) {
-      return res.status(403).json({
-        success: false,
-        message: 'This feature requires a premium subscription',
-        subscriptionStatus: user.subscriptionStatus
-      });
-    }
-
-    next();
-  } catch (error) {
-    return res.status(500).json({
+exports.checkPremium = (req, res, next) => {
+  // Use req.user directly since 'protect' already fetched it
+  if (!req.user.isPremium) {
+    return res.status(403).json({
       success: false,
-      message: 'Error checking subscription status'
+      message: 'This feature requires a premium subscription',
+      subscriptionStatus: req.user.subscriptionStatus
     });
   }
+  next();
 };
