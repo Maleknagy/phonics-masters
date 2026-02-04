@@ -14,7 +14,6 @@ Trial account
 student@test.com
 password123
 
-
 resend.com
 UN: malek3rd@outlook.com
 PW: #Learnova@11
@@ -27,7 +26,7 @@ resend API key
 re_2HzzyvGX_5KEYSvR99L2Zb8pVqgUUnXM
 
 
-
+------------------
 APIKEY1
 6oLCSz2miMvM01ZA2yQz30f4XjSGKmmzYVSuyh4yxvJCRjjbWb3qJQQJ99CAACYeBjFXJ3w3AAAYACOGFsep
 
@@ -39,6 +38,34 @@ eastus
 
 ENDPOINT
 https://eastus.api.cognitive.microsoft.com/
+
+-----------------
+
+
+VITE_SUPABASE_URL
+https://mbmswkltiqepwcynwgfr.supabase.co
+
+VITE_SUPABASE_ANON_KEY
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ibXN3a2x0aXFlcHdjeW53Z2ZyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc3MzAzNzgsImV4cCI6MjA4MzMwNjM3OH0.fVB4f7KIoDdznFgnQ9ZDjr7W4fxk2dJpmu_fStPZ6_s
+
+------------------
+1
+cd frontend
+2
+npm run build
+3
+cd ..
+4
+firebase deploy --only hosting
+5
+git add .
+6
+git commit -m "Fix: Synced Sight Word Pop progress to Unit View"
+7
+git push
+
+------------------
+
 
 
 
