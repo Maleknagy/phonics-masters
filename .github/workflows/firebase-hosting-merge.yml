@@ -10,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      # Step: Install and build specifically inside the frontend directory
+      # Tell the robot to go into the frontend folder for the recipe
       - name: Install and Build
         working-directory: ./frontend
         run: npm install && npm run build
