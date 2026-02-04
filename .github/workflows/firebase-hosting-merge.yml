@@ -4,21 +4,13 @@ on:
     branches:
       - main
 jobs:
-  build_and_deploy:
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      # THE MASTER FIX: Use 'npx' with a clean install to bypass permission errors
-      - name: Clean Install and Build
-        working-directory: ./frontend
-        run: |
-          npm install --no-bin-links
-          npx vite build
-        env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-
+      
+      # We skip 'npm install' and 'npm run build' entirely because 
+      # you will push the finished 'dist' folder directly.
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
