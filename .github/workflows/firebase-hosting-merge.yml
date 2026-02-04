@@ -13,7 +13,10 @@ jobs:
       # This is the fix: It tells the robot to move into the 'frontend' folder
       - name: Install and Build
         working-directory: ./frontend
-        run: npm install && npm run build
+        run: |
+          npm install
+          chmod +x node_modules/.bin/vite
+          npm run build
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
