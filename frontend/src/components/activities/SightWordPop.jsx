@@ -23,6 +23,25 @@ const SightWordPop = () => {
 
   useEffect(() => { scoreRef.current = score; }, [score]);
 
+  // NEW: Helper function to sync progress to Supabase for the Unit View
+  const syncProgressToDB = async (currentScore) => {
+    try {
+      const { data: { user } } = await db.auth.getUser();
+      if (!user) return;
+
+      // We use 'sight_word' as the game_id to match your dashboard's expectations
+      await db.from('user_progress').upsert({
+        user_id: user.id,
+        unit_id: unitId,
+        game_id: 'sight_word', // THIS MUST MATCH THE ID USED IN YOUR UNIT VIEW
+        progress_percent: Math.round(currentScore),
+        last_played: new Date().toISOString()
+      }, { onConflict: 'user_id,unit_id,game_id' });
+    } catch (err) {
+      console.error("Sync Error:", err);
+    }
+  };
+
   const getLevelConfig = (currentScore) => {
     if (currentScore < 30) return { spawnRate: 2200, speed: 10 };
     if (currentScore < 70) return { spawnRate: 1700, speed: 7 };
@@ -40,8 +59,10 @@ const SightWordPop = () => {
             if (data && data.length > 0) {
                 const words = data.map(item => item.content);
                 wordsRef.current = words;
+                
+                // Changed selector to game_id to maintain consistency
                 const { data: pData } = await db.from('user_progress').select('progress_percent')
-                    .eq('user_id', user.id).eq('unit_id', unitId).eq('game_type', 'sight_word').maybeSingle();
+                    .eq('user_id', user.id).eq('unit_id', unitId).eq('game_id', 'sight_word').maybeSingle();
                 if (pData) setScore(pData.progress_percent || 0);
             }
         } catch (err) { console.error(err); } finally { setIsLoading(false); }
@@ -90,29 +111,35 @@ const SightWordPop = () => {
   const handlePop = (id, bubbleWord) => {
     const isCorrect = bubbleWord === targetWord;
     
-    // Play sound immediately on user gesture
     const soundPath = isCorrect ? '/audio/correct.mp3' : '/audio/wrong.mp3';
     const audio = new Audio(soundPath);
     audio.volume = 1.0;
-    audio.play().catch(e => console.error("Sound blocked or missing:", e));
+    audio.play().catch(e => console.error("Sound blocked:", e));
 
     setBubbles(prev => prev.map(b => b.id === id ? { ...b, status: isCorrect ? 'correct' : 'wrong' } : b));
 
     if (isCorrect) {
         const nextScore = Math.min(100, score + 3);
         setScore(nextScore);
+        
+        // Sync to DB immediately so the Unit View updates in the background
+        syncProgressToDB(nextScore);
+
         setTimeout(() => {
             setBubbles(prev => prev.filter(b => b.id !== id));
             if (nextScore >= 100) {
                 setIsPlaying(false);
                 setShowWin(true);
+                // Keeping your original saveProgress utility call as well
                 saveProgress(unitId, 'sight_word', 100, 100);
             } else {
                 pickNewTarget();
             }
         }, 400);
     } else {
-        setScore(prev => Math.max(0, prev - 3));
+        const nextScore = Math.max(0, score - 3);
+        setScore(nextScore);
+        syncProgressToDB(nextScore);
         setTimeout(() => {
             setBubbles(prev => prev.filter(b => b.id !== id));
         }, 400);
@@ -124,7 +151,6 @@ const SightWordPop = () => {
   return (
     <div className="min-h-screen bg-gradient-to-b from-sky-400 to-blue-600 overflow-hidden relative font-sans text-white select-none">
       
-      {/* UNIFIED HEADER */}
       <div className="w-full p-6 flex items-center justify-between sticky top-0 z-[100] bg-white/10 backdrop-blur-md border-b-2 border-white/20">
         <button onClick={() => navigate(-1)} className="bg-white p-4 rounded-2xl text-sky-600 shadow-[0_5px_0_#cbd5e1] active:translate-y-1 active:shadow-none transition-all">
           <FaArrowLeft />
@@ -137,7 +163,7 @@ const SightWordPop = () => {
         </div>
         <div className="bg-yellow-400 px-6 py-3 rounded-2xl shadow-[0_6px_0_#d97706] flex items-center gap-3 border-2 border-yellow-200">
           <FaStar className="text-yellow-700 animate-pulse" />
-          <span className="text-2xl font-black text-yellow-900">{score}</span>
+          <span className="text-2xl font-black text-yellow-900">{Math.round(score)}</span>
         </div>
       </div>
 
@@ -172,7 +198,6 @@ const SightWordPop = () => {
                             className="absolute rounded-full cursor-pointer flex items-center justify-center group"
                             style={{ 
                                 left: `${b.x}%`, width: '160px', height: '160px',
-                                // 3D TRANSPARENT BUBBLE LOOK
                                 background: b.status === 'correct' ? 'rgba(34, 197, 94, 0.8)' : b.status === 'wrong' ? 'rgba(239, 68, 68, 0.8)' : 'radial-gradient(circle at 30% 30%, rgba(255,255,255,0.8) 0%, rgba(255,255,255,0.1) 40%, rgba(100,200,255,0.2) 80%, rgba(255,255,255,0.4) 100%)',
                                 boxShadow: 'inset -10px -10px 20px rgba(0,0,0,0.1), inset 10px 10px 20px rgba(255,255,255,0.5), 0 10px 30px rgba(0,0,0,0.1)',
                                 border: '2px solid rgba(255,255,255,0.6)',
@@ -180,7 +205,7 @@ const SightWordPop = () => {
                                 touchAction: 'none'
                             }} 
                         >
-                            <div className="absolute top-4 left-6 w-8 h-4 bg-white/40 rounded-full rotate-[-45deg]" /> {/* Highlight reflection */}
+                            <div className="absolute top-4 left-6 w-8 h-4 bg-white/40 rounded-full rotate-[-45deg]" /> 
                             
                             {b.status === 'correct' ? (
                                 <FaCheck className="text-white text-7xl drop-shadow-lg" />
