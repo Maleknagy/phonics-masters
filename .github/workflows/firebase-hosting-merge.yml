@@ -9,7 +9,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      # The Robot only does one thing: Delivery.
+      # The Robot ONLY delivers the files you already built.
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
