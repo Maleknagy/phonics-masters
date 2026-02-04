@@ -6,41 +6,31 @@ on:
 jobs:
   build_and_deploy:
     runs-on: ubuntu-latest
-    # This block forces EVERY step to start inside the frontend directory
-    defaults:
-      run:
-        working-directory: ./frontend
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Node.js
+      # This specialized action handles the "folder switching" internally
+      # so you don't have to worry about 'cd' or 'prefix' errors.
+      - name: Install and Build
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: 20
           cache: 'npm'
-          # Points to the exact lockfile for Phonics Masters
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Clean Install
-        # 'npm ci' is safer for CI/CD as it prevents version mismatches
-        run: npm ci
-
       - name: Build Project
-        # 'npm run build' is safer than calling the vite binary directly
-        run: npm run build
+        run: |
+          npm ci
+          npm run build
+        working-directory: ./frontend
         env:
-          NODE_ENV: production
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-          VITE_AZURE_KEY: ${{ secrets.VITE_AZURE_KEY }}
-          VITE_AZURE_REGION: ${{ secrets.VITE_AZURE_REGION }}
 
-      - name: Deploy to Firebase
-        uses: FirebaseExtended/action-hosting-deploy@v0
+      - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PHONICS_001_29383565_F7EB2 }}
           projectId: phonics-001-29383565-f7eb2
           channelId: live
-          # This tells the Firebase tool EXACTLY where your config is
-          entryPoint: ./frontend
+          entryPoint: .
