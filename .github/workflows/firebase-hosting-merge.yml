@@ -9,14 +9,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # THE REVOLUTIONARY STEP:
-      # We install Vite globally on the server so it doesn't care about your local folder's permissions.
-      - name: Force Clean Build
+      # THE MASTER FIX: Use 'npx' with a clean install to bypass permission errors
+      - name: Clean Install and Build
+        working-directory: ./frontend
         run: |
-          cd frontend
           npm install --no-bin-links
-          # Use the absolute path to the freshly installed vite to bypass permission ghosting
-          node_modules/.bin/vite build
+          npx vite build
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
