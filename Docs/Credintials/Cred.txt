@@ -1,0 +1,80 @@
+MongoDB
+UN: malek14th@gmail.com
+PW: Sha2osht3'azay
+
+Azure
+UN: malek3rd@outlook.com
+PW: Mariah@11
+
+Supabase
+UN: malek14th@gmail.com
+PW: Learnova@11
+
+Trial account
+student@test.com
+password123
+
+
+resend.com
+UN: malek3rd@outlook.com
+PW: #Learnova@11
+
+GitHub
+UN: malek14th@gmail.com
+PW: Sha2osht3'azay@11
+
+resend API key
+re_2HzzyvGX_5KEYSvR99L2Zb8pVqgUUnXM
+
+
+
+APIKEY1
+6oLCSz2miMvM01ZA2yQz30f4XjSGKmmzYVSuyh4yxvJCRjjbWb3qJQQJ99CAACYeBjFXJ3w3AAAYACOGFsep
+
+APIKEY2
+8XrtyvjGBhRlbwlSCx4LZZjvzERTaGT4Lx4irE2kIWWxGVLMw0J9JQQJ99CAACYeBjFXJ3w3AAAYACOGMSpk
+
+LOCATION/REGION
+eastus
+
+ENDPOINT
+https://eastus.api.cognitive.microsoft.com/
+
+
+
+----------------------levels
+now, I'd like to rename the levels and the units in the dashboard, the level view and the unit view to the following: 
+
+Level 1: Short vowel sounds
+Unit 1: Short /a/ Sound
+Unit 2: Short /e/ Sound
+Unit 3: Short /i/ Sound
+Unit 4: Short /o/ Sound
+Unit 5: Short /u/ Sound
+
+Level 2: Long vowel sounds (Magic e)
+Unit 1: Long /a/ Sound (Magic e)
+Unit 2: Long /i/ Sound (Magic e)
+Unit 3: Long /o/ Sound (Magic e)
+Unit 4: Long /u/ Sound (Magic e)
+Unit 5: Long /u/ Sound (Magic e)
+
+
+Level 3: Beginning Consonant Blends
+Unit 1: "L" Blends: bl, cl, fl, gl, pl, sl
+Unit 2: "R" Blends: br, cr, fr, gr, pr, tr, dr
+Unit 3: "S" Blends: sm, sn, sp, st, sk, sc, sw
+Unit 4: Digraphs: sh, ch, th, wh, ph
+Unit 5: Other Blends: spl, spr, str, scr, squ, shr, thr  
+
+
+
+
+Level 4: Ending Consonant Blends
+Unit 1: Ending Blends: -nt, -nd, -nk, -ng, -ld, -nt
+Unit 2: Ending Blends: -lp, -lf, -lk, -ft, -ct, -mp
+Unit 3: Ending Blends: -st, -sp, -sk, -sh, -nch
+Unit 4: Ending Blends: -k, -ck, -ch, -tch
+Unit 5: Ending Blends: -ble, -ple, -cle, -kle, -gle, -dle
+
+What Do we need to change?
