@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      # Tell GitHub to run all following commands inside the frontend folder
+      # Tell GitHub to work inside the 'frontend' folder
       - name: Install and Build
         working-directory: ./frontend
         run: npm install && npm run build
