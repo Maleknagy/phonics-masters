@@ -8,11 +8,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
-      # The Robot ONLY delivers. It does not build.
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PHONICS_001_29383565_F7EB2 }}
           channelId: live
-          projectId: phonics-001-29383565-f7eb2
+          projectId: phonics-001-29383565_f7eb2
