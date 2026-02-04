@@ -10,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      # Tell the robot to go into the frontend folder for the recipe
+      # This is the fix: It tells the robot to move into the 'frontend' folder
       - name: Install and Build
         working-directory: ./frontend
         run: npm install && npm run build
