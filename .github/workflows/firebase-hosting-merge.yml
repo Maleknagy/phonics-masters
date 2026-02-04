@@ -4,33 +4,15 @@ on:
     branches:
       - main
 jobs:
-  build_and_deploy:
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      # This specialized action handles the "folder switching" internally
-      # so you don't have to worry about 'cd' or 'prefix' errors.
-      - name: Install and Build
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Build Project
-        run: |
-          npm ci
-          npm run build
-        working-directory: ./frontend
-        env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-
+      
+      # The Robot only does one thing: Delivery.
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PHONICS_001_29383565_F7EB2 }}
-          projectId: phonics-001-29383565-f7eb2
           channelId: live
-          entryPoint: .
+          projectId: phonics-001-29383565-f7eb2
