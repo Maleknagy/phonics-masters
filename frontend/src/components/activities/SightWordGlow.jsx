@@ -72,49 +72,27 @@ const SightWordGlow = () => {
   };
 
   const speakBrowserFallback = (text) => {
-    return new Promise((resolve) => {
-    if (!text || !window.speechSynthesis) {
-      resolve(false);
-      return;
-    }
+    if (!text || !window.speechSynthesis) return false;
 
     const utterance = new SpeechSynthesisUtterance(text);
-    let resolved = false;
-
-    const finish = (started) => {
-      if (resolved) return;
-      resolved = true;
-      resolve(started);
-    };
-
     utterance.lang = 'en-US';
     utterance.rate = 0.85;
-    utterance.onstart = () => {
-      clearSpeechSafetyTimeout();
-      finish(true);
-    };
     utterance.onend = () => {
       clearSpeechSafetyTimeout();
       setIsSpeaking(false);
-      finish(true);
     };
     utterance.onerror = () => {
-      clearSpeechSafetyTimeout();
-      setIsSpeaking(false);
-      finish(false);
+      const azureStarted = speakWithAzure(text);
+      if (!azureStarted) {
+        clearSpeechSafetyTimeout();
+        setIsSpeaking(false);
+      }
     };
 
-    setTimeout(() => {
-      if (!resolved) {
-        window.speechSynthesis.cancel();
-        finish(false);
-      }
-    }, 1200);
-
-    window.speechSynthesis.resume();
     window.speechSynthesis.cancel();
+    window.speechSynthesis.resume();
     window.speechSynthesis.speak(utterance);
-    });
+    return true;
   };
 
   const speakWithAzure = (text) => {
@@ -186,7 +164,7 @@ const SightWordGlow = () => {
           let startPoints = 0;
           if (pData) {
             const gameProg = pData.find(p => p.game_type === 'sight-word-glow' || p.game_type === 'sight_word_glow');
-            startPoints = gameProg?.points || gameProg?.progress_percent || 0;
+            startPoints = Math.min(100, gameProg?.points || gameProg?.progress_percent || 0);
           }
 
           setWords(enduranceList);
@@ -244,14 +222,14 @@ const SightWordGlow = () => {
     setMicError('');
   }, [currentIndex]);
 
-  const speakAzure = async (text) => {
+  const speakAzure = (text) => {
     if (!text || isSpeaking) return;
     resetSpeakingState();
     setIsSpeaking(true);
     speechSafetyTimeoutRef.current = setTimeout(() => setIsSpeaking(false), 8000);
 
     if (window.speechSynthesis) {
-      const started = await speakBrowserFallback(text);
+      const started = speakBrowserFallback(text);
       if (started) {
         return;
       }
@@ -269,6 +247,18 @@ const SightWordGlow = () => {
       clearSpeechSafetyTimeout();
       setIsSpeaking(false);
     }
+  };
+
+  const handleRestartFromZero = async () => {
+    stopListeningSession();
+    resetSpeakingState();
+    setPoints(0);
+    setCurrentIndex(0);
+    setActiveLetters([]);
+    setFeedback(null);
+    setMicError('');
+    setGameState('SPELLING');
+    await saveProgress(unitId, 'sight-word-glow', 0, 0);
   };
 
   const currentWord = words[currentIndex] || "";
@@ -387,8 +377,8 @@ const SightWordGlow = () => {
       setGameState('FEEDBACK');
       const nextPoints = Math.min(100, points + 3);
       setPoints(prev => {
-        const next = prev + 3;
-        saveProgress(unitId, 'sight-word-glow', Math.min(100, next), next);
+        const next = Math.min(100, prev + 3);
+        saveProgress(unitId, 'sight-word-glow', next, next);
         return next;
       });
       setTimeout(() => {
@@ -448,7 +438,10 @@ const SightWordGlow = () => {
           <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="bg-white p-12 rounded-[4rem] flex flex-col items-center shadow-2xl">
              <FaCheckCircle className="text-green-500 text-9xl mb-6" />
              <h2 className="text-slate-800 text-4xl font-black uppercase mb-8">100 Stars!</h2>
-             <button onClick={() => navigate(-1)} className="bg-indigo-600 text-white px-12 py-6 rounded-[2rem] text-2xl font-black uppercase">Finish</button>
+             <div className="flex items-center gap-4">
+               <button onClick={handleRestartFromZero} className="bg-emerald-600 text-white px-8 py-5 rounded-[1.5rem] text-lg font-black uppercase">Reload 0</button>
+               <button onClick={() => navigate(-1)} className="bg-indigo-600 text-white px-8 py-5 rounded-[1.5rem] text-lg font-black uppercase">Menu</button>
+             </div>
           </motion.div>
         ) : (
           <>
@@ -470,38 +463,37 @@ const SightWordGlow = () => {
               ))}
             </div>
 
-            {/* ACTION AREA - USER MUST CLICK FOR SOUND */}
-            <div className="h-48 flex items-center justify-center">
+            {/* ACTION AREA */}
+            <div className="min-h-48 flex flex-col items-center justify-center gap-5">
+                <div className="flex items-center gap-8">
+                  <button
+                    onClick={() => speakAzure(currentWord)}
+                    disabled={isSpeaking || !currentWord}
+                    className={`p-8 rounded-full border-b-8 shadow-xl transition-all ${isSpeaking ? 'bg-cyan-500 animate-pulse' : 'bg-slate-700 border-slate-900'}`}
+                  >
+                    {isSpeaking ? <FaSpinner className="animate-spin" size={40} /> : <FaVolumeUp size={40} />}
+                  </button>
+
+                  <button
+                    onClick={startListening}
+                    disabled={gameState !== 'SPEAKING' || isListening}
+                    className={`p-8 rounded-full border-b-8 shadow-2xl transition-all ${isListening ? 'bg-red-500 border-red-800 animate-pulse' : gameState === 'SPEAKING' ? 'bg-green-500 border-green-800' : 'bg-slate-500 border-slate-700 opacity-60'}`}
+                  >
+                    <FaMicrophone size={44} />
+                  </button>
+                </div>
+
+                <p className="font-black uppercase text-xs tracking-widest text-green-400">Speaker + Mic are ready</p>
+                {micError && <p className="text-xs font-bold text-red-300">{micError}</p>}
+
                 <AnimatePresence mode="wait">
-                    {gameState === 'SPELLING' && (
-                        <motion.button 
-                          key="speaker" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}
-                          onClick={() => speakAzure(currentWord)}
-                          disabled={isSpeaking}
-                          className={`p-10 rounded-full border-b-8 shadow-xl transition-all ${isSpeaking ? 'bg-cyan-500 animate-pulse' : 'bg-slate-700 border-slate-900'}`}
-                        >
-                            {isSpeaking ? <FaSpinner className="animate-spin" size={48} /> : <FaVolumeUp size={48} />}
-                        </motion.button>
-                    )}
-                    {gameState === 'SPEAKING' && (
-                        <motion.div key="mic" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }} className="flex flex-col items-center">
-                            <motion.button 
-                              onClick={startListening}
-                              className={`p-10 rounded-full border-b-8 shadow-2xl transition-all ${isListening ? 'bg-red-500 border-red-800 animate-pulse' : 'bg-green-500 border-green-800'}`}
-                            >
-                                <FaMicrophone size={56} />
-                            </motion.button>
-                            <p className="mt-4 font-black uppercase text-xs tracking-widest text-green-400">Tap mic and read!</p>
-                        {micError && <p className="mt-2 text-xs font-bold text-red-300">{micError}</p>}
-                        </motion.div>
-                    )}
-                    {feedback && feedback !== 'wrong-letter' && (
-                        <motion.div key="fdbk" initial={{ scale: 0 }} animate={{ scale: 1.2 }} exit={{ scale: 0 }}>
-                            <p className={`text-6xl font-black uppercase italic tracking-tighter ${feedback === 'correct' ? 'text-green-400' : 'text-red-400'}`}>
-                                {feedback === 'correct' ? "+3 STARS!" : "-3 STARS"}
-                            </p>
-                        </motion.div>
-                    )}
+                  {feedback && feedback !== 'wrong-letter' && (
+                    <motion.div key="fdbk" initial={{ scale: 0 }} animate={{ scale: 1.2 }} exit={{ scale: 0 }}>
+                      <p className={`text-6xl font-black uppercase italic tracking-tighter ${feedback === 'correct' ? 'text-green-400' : 'text-red-400'}`}>
+                        {feedback === 'correct' ? "+3 STARS!" : "-3 STARS"}
+                      </p>
+                    </motion.div>
+                  )}
                 </AnimatePresence>
             </div>
           </>
