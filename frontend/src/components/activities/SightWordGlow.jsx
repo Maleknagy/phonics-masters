@@ -24,6 +24,7 @@ const SightWordGlow = () => {
   const recognitionRef = useRef(null);
   const azureRecognizerRef = useRef(null);
   const speechSafetyTimeoutRef = useRef(null);
+  const gameStateRef = useRef('LOADING');
   const TARGET_SCORE = 100;
   const hasAzureSpeechConfig = Boolean(import.meta.env.VITE_AZURE_KEY && import.meta.env.VITE_AZURE_REGION);
 
@@ -71,25 +72,100 @@ const SightWordGlow = () => {
   };
 
   const speakBrowserFallback = (text) => {
+    return new Promise((resolve) => {
     if (!text || !window.speechSynthesis) {
-      setIsSpeaking(false);
+      resolve(false);
       return;
     }
 
     const utterance = new SpeechSynthesisUtterance(text);
+    let resolved = false;
+
+    const finish = (started) => {
+      if (resolved) return;
+      resolved = true;
+      resolve(started);
+    };
+
     utterance.lang = 'en-US';
     utterance.rate = 0.85;
+    utterance.onstart = () => {
+      clearSpeechSafetyTimeout();
+      finish(true);
+    };
     utterance.onend = () => {
       clearSpeechSafetyTimeout();
       setIsSpeaking(false);
+      finish(true);
     };
     utterance.onerror = () => {
       clearSpeechSafetyTimeout();
       setIsSpeaking(false);
+      finish(false);
     };
+
+    setTimeout(() => {
+      if (!resolved) {
+        window.speechSynthesis.cancel();
+        finish(false);
+      }
+    }, 1200);
+
+    window.speechSynthesis.resume();
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utterance);
+    });
   };
+
+  const speakWithAzure = (text) => {
+    if (!hasAzureSpeechConfig) {
+      return false;
+    }
+
+    let speechConfig;
+    try {
+      speechConfig = SpeechSDK.SpeechConfig.fromSubscription(
+        import.meta.env.VITE_AZURE_KEY,
+        import.meta.env.VITE_AZURE_REGION
+      );
+      speechConfig.speechSynthesisVoiceName = 'en-US-JennyNeural';
+    } catch (error) {
+      return false;
+    }
+
+    const ssml = `
+      <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US">
+        <voice name="en-US-JennyNeural">
+          <prosody rate="0.75">
+            ${escapeXml(text)}
+          </prosody>
+        </voice>
+      </speak>`;
+
+    const synthesizer = new SpeechSDK.SpeechSynthesizer(speechConfig);
+    synthesizerRef.current = synthesizer;
+
+    synthesizer.speakSsmlAsync(
+      ssml,
+      () => {
+        clearSpeechSafetyTimeout();
+        setIsSpeaking(false);
+        synthesizer.close();
+        synthesizerRef.current = null;
+      },
+      () => {
+        synthesizer.close();
+        synthesizerRef.current = null;
+        setIsSpeaking(false);
+      }
+    );
+
+    return true;
+  };
+
+  useEffect(() => {
+    gameStateRef.current = gameState;
+  }, [gameState]);
 
   useEffect(() => {
     async function initGame() {
@@ -168,55 +244,31 @@ const SightWordGlow = () => {
     setMicError('');
   }, [currentIndex]);
 
-  const speakAzure = (text) => {
+  const speakAzure = async (text) => {
     if (!text || isSpeaking) return;
     resetSpeakingState();
     setIsSpeaking(true);
     speechSafetyTimeoutRef.current = setTimeout(() => setIsSpeaking(false), 8000);
 
-    if (!hasAzureSpeechConfig) {
-      speakBrowserFallback(text);
-      return;
-    }
+    if (window.speechSynthesis) {
+      const started = await speakBrowserFallback(text);
+      if (started) {
+        return;
+      }
 
-    let speechConfig;
-    try {
-      speechConfig = SpeechSDK.SpeechConfig.fromSubscription(
-        import.meta.env.VITE_AZURE_KEY,
-        import.meta.env.VITE_AZURE_REGION
-      );
-      speechConfig.speechSynthesisVoiceName = 'en-US-JennyNeural';
-    } catch (error) {
-      speakBrowserFallback(text);
-      return;
-    }
-
-    const ssml = `
-      <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US">
-        <voice name="en-US-JennyNeural">
-          <prosody rate="0.75">
-            ${escapeXml(text)}
-          </prosody>
-        </voice>
-      </speak>`;
-
-    const synthesizer = new SpeechSDK.SpeechSynthesizer(speechConfig);
-    synthesizerRef.current = synthesizer;
-
-    synthesizer.speakSsmlAsync(
-      ssml,
-      result => {
+      const azureStarted = speakWithAzure(text);
+      if (!azureStarted) {
         clearSpeechSafetyTimeout();
         setIsSpeaking(false);
-        synthesizer.close();
-        synthesizerRef.current = null;
-      },
-      error => {
-        synthesizer.close();
-        synthesizerRef.current = null;
-        speakBrowserFallback(text);
       }
-    );
+      return;
+    }
+
+    const azureStarted = speakWithAzure(text);
+    if (!azureStarted) {
+      clearSpeechSafetyTimeout();
+      setIsSpeaking(false);
+    }
   };
 
   const currentWord = words[currentIndex] || "";
@@ -258,6 +310,12 @@ const SightWordGlow = () => {
 
       recognizer.recognizeOnceAsync(
         (result) => {
+          if (gameStateRef.current !== 'SPEAKING') {
+            recognizer.close();
+            azureRecognizerRef.current = null;
+            return;
+          }
+
           setIsListening(false);
           if (result.reason === SpeechSDK.ResultReason.RecognizedSpeech && result.text) {
             handleSpeechResult(result.text);
@@ -312,6 +370,8 @@ const SightWordGlow = () => {
   };
 
   const handleSpeechResult = (spokenWord) => {
+    if (gameStateRef.current !== 'SPEAKING') return;
+
     stopListeningSession();
     const target = normalizeSpeech(currentWord);
     const spoken = normalizeSpeech(spokenWord);
@@ -323,6 +383,7 @@ const SightWordGlow = () => {
     if (spoken.includes(target) || target.includes(spoken)) {
       new Audio('/audio/correct.mp3').play().catch(()=>{});
       setFeedback('correct');
+      setIsListening(false);
       setGameState('FEEDBACK');
       const nextPoints = Math.min(100, points + 3);
       setPoints(prev => {
