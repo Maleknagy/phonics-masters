@@ -22,10 +22,53 @@ const SightWordGlow = () => {
 
   const synthesizerRef = useRef(null);
   const recognitionRef = useRef(null);
+  const azureRecognizerRef = useRef(null);
+  const speechSafetyTimeoutRef = useRef(null);
   const TARGET_SCORE = 100;
   const hasAzureSpeechConfig = Boolean(import.meta.env.VITE_AZURE_KEY && import.meta.env.VITE_AZURE_REGION);
 
   const normalizeSpeech = (text = '') => text.toLowerCase().replace(/[^a-z\s'-]/g, '').trim();
+  const escapeXml = (text = '') => text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+
+  const clearSpeechSafetyTimeout = () => {
+    if (speechSafetyTimeoutRef.current) {
+      clearTimeout(speechSafetyTimeoutRef.current);
+      speechSafetyTimeoutRef.current = null;
+    }
+  };
+
+  const stopListeningSession = () => {
+    setIsListening(false);
+
+    if (recognitionRef.current) {
+      try { recognitionRef.current.abort(); } catch (e) {}
+    }
+
+    if (azureRecognizerRef.current) {
+      try { azureRecognizerRef.current.close(); } catch (e) {}
+      azureRecognizerRef.current = null;
+    }
+  };
+
+  const resetSpeakingState = () => {
+    clearSpeechSafetyTimeout();
+
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+
+    if (synthesizerRef.current) {
+      try { synthesizerRef.current.close(); } catch (e) {}
+      synthesizerRef.current = null;
+    }
+
+    setIsSpeaking(false);
+  };
 
   const speakBrowserFallback = (text) => {
     if (!text || !window.speechSynthesis) {
@@ -36,8 +79,14 @@ const SightWordGlow = () => {
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'en-US';
     utterance.rate = 0.85;
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
+    utterance.onend = () => {
+      clearSpeechSafetyTimeout();
+      setIsSpeaking(false);
+    };
+    utterance.onerror = () => {
+      clearSpeechSafetyTimeout();
+      setIsSpeaking(false);
+    };
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utterance);
   };
@@ -80,8 +129,19 @@ const SightWordGlow = () => {
     if (SpeechRecognition) {
       recognitionRef.current = new SpeechRecognition();
       recognitionRef.current.lang = 'en-US';
+      recognitionRef.current.continuous = false;
+      recognitionRef.current.interimResults = false;
       recognitionRef.current.onstart = () => setIsListening(true);
       recognitionRef.current.onend = () => setIsListening(false);
+      recognitionRef.current.onerror = (event) => {
+        setIsListening(false);
+        if (event?.error === 'not-allowed') {
+          setMicError('Microphone permission is blocked. Enable mic access and retry.');
+          return;
+        }
+        if (event?.error === 'aborted') return;
+        recognizeWithAzureOnce();
+      };
       recognitionRef.current.onresult = (event) => {
         const transcript = event.results[0][0].transcript.toLowerCase().trim();
         handleSpeechResult(transcript);
@@ -89,16 +149,30 @@ const SightWordGlow = () => {
     }
 
     return () => {
-      if (synthesizerRef.current) synthesizerRef.current.close();
-      if (recognitionRef.current && recognitionRef.current.abort) {
-        try { recognitionRef.current.abort(); } catch (e) {}
+      clearSpeechSafetyTimeout();
+      stopListeningSession();
+      if (synthesizerRef.current) {
+        try { synthesizerRef.current.close(); } catch (e) {}
       }
     };
   }, [unitId]);
 
+  useEffect(() => {
+    if (gameState !== 'SPEAKING') {
+      stopListeningSession();
+    }
+  }, [gameState]);
+
+  useEffect(() => {
+    resetSpeakingState();
+    setMicError('');
+  }, [currentIndex]);
+
   const speakAzure = (text) => {
     if (!text || isSpeaking) return;
+    resetSpeakingState();
     setIsSpeaking(true);
+    speechSafetyTimeoutRef.current = setTimeout(() => setIsSpeaking(false), 8000);
 
     if (!hasAzureSpeechConfig) {
       speakBrowserFallback(text);
@@ -121,7 +195,7 @@ const SightWordGlow = () => {
       <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US">
         <voice name="en-US-JennyNeural">
           <prosody rate="0.75">
-            ${text}
+            ${escapeXml(text)}
           </prosody>
         </voice>
       </speak>`;
@@ -132,11 +206,14 @@ const SightWordGlow = () => {
     synthesizer.speakSsmlAsync(
       ssml,
       result => {
+        clearSpeechSafetyTimeout();
         setIsSpeaking(false);
         synthesizer.close();
+        synthesizerRef.current = null;
       },
       error => {
         synthesizer.close();
+        synthesizerRef.current = null;
         speakBrowserFallback(text);
       }
     );
@@ -166,11 +243,17 @@ const SightWordGlow = () => {
     }
 
     try {
+      if (azureRecognizerRef.current) {
+        try { azureRecognizerRef.current.close(); } catch (e) {}
+        azureRecognizerRef.current = null;
+      }
+
       const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(
         import.meta.env.VITE_AZURE_KEY,
         import.meta.env.VITE_AZURE_REGION
       );
       const recognizer = new SpeechSDK.SpeechRecognizer(speechConfig, SpeechSDK.AudioConfig.fromDefaultMicrophoneInput());
+      azureRecognizerRef.current = recognizer;
       setIsListening(true);
 
       recognizer.recognizeOnceAsync(
@@ -182,11 +265,13 @@ const SightWordGlow = () => {
             setMicError('No speech detected. Try again.');
           }
           recognizer.close();
+          azureRecognizerRef.current = null;
         },
         () => {
           setIsListening(false);
           setMicError('Mic connection failed. Check permission and retry.');
           recognizer.close();
+          azureRecognizerRef.current = null;
         }
       );
     } catch (error) {
@@ -227,6 +312,7 @@ const SightWordGlow = () => {
   };
 
   const handleSpeechResult = (spokenWord) => {
+    stopListeningSession();
     const target = normalizeSpeech(currentWord);
     const spoken = normalizeSpeech(spokenWord);
     if (!spoken || !target) {
@@ -252,6 +338,7 @@ const SightWordGlow = () => {
         setFeedback(null);
         setActiveLetters([]);
         setCurrentIndex(prev => prev + 1);
+        setMicError('');
         setGameState('SPELLING');
         // REMOVED: Auto-speech trigger on next word
       }, 1200);
