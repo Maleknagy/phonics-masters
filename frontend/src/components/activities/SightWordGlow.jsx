@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { FaArrowLeft, FaStar, FaMicrophone, FaVolumeUp, FaLightbulb, FaCheckCircle, FaSpinner } from 'react-icons/fa';
 import { useNavigate, useParams } from 'react-router-dom';
 import * as SpeechSDK from 'microsoft-cognitiveservices-speech-sdk';
-import { saveProgress } from '../../utils/progressManager';
 import { db } from '../../supabaseClient';
 
 const SightWordGlow = () => {
@@ -20,28 +19,15 @@ const SightWordGlow = () => {
   const [feedback, setFeedback] = useState(null);
   const [micError, setMicError] = useState('');
 
-  const synthesizerRef = useRef(null);
   const azureRecognizerRef = useRef(null);
-  const speechSafetyTimeoutRef = useRef(null);
   const gameStateRef = useRef('LOADING');
   const TARGET_SCORE = 100;
   const hasAzureSpeechConfig = Boolean(import.meta.env.VITE_AZURE_KEY && import.meta.env.VITE_AZURE_REGION);
   const clampPoints = (value) => Math.max(0, Math.min(TARGET_SCORE, Number(value) || 0));
+  const scoreRef = useRef(0);
 
   const normalizeSpeech = (text = '') => text.toLowerCase().replace(/[^a-z\s'-]/g, '').trim();
-  const escapeXml = (text = '') => text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
-
-  const clearSpeechSafetyTimeout = () => {
-    if (speechSafetyTimeoutRef.current) {
-      clearTimeout(speechSafetyTimeoutRef.current);
-      speechSafetyTimeoutRef.current = null;
-    }
-  };
+  useEffect(() => { scoreRef.current = points; }, [points]);
 
   const stopListeningSession = () => {
     setIsListening(false);
@@ -52,136 +38,39 @@ const SightWordGlow = () => {
     }
   };
 
-  const resetSpeakingState = () => {
-    clearSpeechSafetyTimeout();
-
+  const stopSpeaking = () => {
     if (window.speechSynthesis) {
       window.speechSynthesis.cancel();
     }
-
-    if (synthesizerRef.current) {
-      try { synthesizerRef.current.close(); } catch (e) {}
-      synthesizerRef.current = null;
-    }
-
     setIsSpeaking(false);
   };
 
-  const speakBrowserFallback = (text) => {
-    return new Promise((resolve) => {
-      if (!text || !window.speechSynthesis) {
-        resolve(false);
-        return;
-      }
-
-      let started = false;
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'en-US';
-      utterance.rate = 0.85;
-
-      utterance.onstart = () => {
-        started = true;
-        resolve(true);
-      };
-      utterance.onend = () => {
-        clearSpeechSafetyTimeout();
-        setIsSpeaking(false);
-      };
-      utterance.onerror = () => {
-        if (!started) resolve(false);
-      };
-
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.resume();
-      window.speechSynthesis.speak(utterance);
-
-      setTimeout(() => {
-        if (!started) {
-          window.speechSynthesis.cancel();
-          resolve(false);
-        }
-      }, 1200);
-    });
+  const speakWord = (text) => {
+    if (!text || !window.speechSynthesis) return;
+    stopSpeaking();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'en-US';
+    utterance.rate = 0.9;
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+    window.speechSynthesis.speak(utterance);
   };
 
-  const speakWithAzure = (text) => {
-    if (!hasAzureSpeechConfig) {
-      return false;
-    }
-
-    let speechConfig;
+  const syncProgressToDB = async (nextScore) => {
     try {
-      speechConfig = SpeechSDK.SpeechConfig.fromSubscription(
-        import.meta.env.VITE_AZURE_KEY,
-        import.meta.env.VITE_AZURE_REGION
-      );
-      speechConfig.speechSynthesisVoiceName = 'en-US-JennyNeural';
+      const { data: { user } } = await db.auth.getUser();
+      if (!user) return;
+      await db.from('user_progress').upsert({
+        user_id: user.id,
+        unit_id: unitId,
+        game_type: 'sight_word_glow',
+        score: Math.round(nextScore),
+        progress_percent: Math.round(nextScore),
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'user_id,unit_id,game_type' });
     } catch (error) {
-      return false;
-    }
-
-    const ssml = `
-      <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US">
-        <voice name="en-US-JennyNeural">
-          <prosody rate="0.75">
-            ${escapeXml(text)}
-          </prosody>
-        </voice>
-      </speak>`;
-
-    const synthesizer = new SpeechSDK.SpeechSynthesizer(speechConfig);
-    synthesizerRef.current = synthesizer;
-
-    synthesizer.speakSsmlAsync(
-      ssml,
-      () => {
-        clearSpeechSafetyTimeout();
-        setIsSpeaking(false);
-        synthesizer.close();
-        synthesizerRef.current = null;
-      },
-      () => {
-        synthesizer.close();
-        synthesizerRef.current = null;
-        setIsSpeaking(false);
-      }
-    );
-
-    return true;
-  };
-
-  const speakWord = async (text) => {
-    if (!text || isSpeaking) return;
-    resetSpeakingState();
-    setIsSpeaking(true);
-    speechSafetyTimeoutRef.current = setTimeout(() => setIsSpeaking(false), 8000);
-
-    const audio = new Audio(`/audio/${encodeURIComponent(text.toLowerCase().trim())}.mp3`);
-    let playedAudio = false;
-
-    try {
-      await new Promise((resolve, reject) => {
-        audio.onplay = () => { playedAudio = true; };
-        audio.onended = () => {
-          clearSpeechSafetyTimeout();
-          setIsSpeaking(false);
-          resolve();
-        };
-        audio.onerror = () => reject(new Error('audio-missing'));
-        audio.play().catch(reject);
-      });
-      if (playedAudio) return;
-    } catch (error) {
-      // fall through to speech synthesis
-    }
-
-    const browserStarted = await speakBrowserFallback(text);
-    if (browserStarted) return;
-
-    const azureStarted = speakWithAzure(text);
-    if (!azureStarted) {
-      clearSpeechSafetyTimeout();
-      setIsSpeaking(false);
+      console.error('Progress sync error:', error);
     }
   };
 
@@ -224,11 +113,8 @@ const SightWordGlow = () => {
     initGame();
 
     return () => {
-      clearSpeechSafetyTimeout();
       stopListeningSession();
-      if (synthesizerRef.current) {
-        try { synthesizerRef.current.close(); } catch (e) {}
-      }
+      stopSpeaking();
     };
   }, [unitId]);
 
@@ -239,20 +125,20 @@ const SightWordGlow = () => {
   }, [gameState]);
 
   useEffect(() => {
-    resetSpeakingState();
+    stopSpeaking();
     setMicError('');
   }, [currentIndex]);
 
   const handleRestartFromZero = async () => {
     stopListeningSession();
-    resetSpeakingState();
+    stopSpeaking();
     setPoints(clampPoints(0));
     setCurrentIndex(0);
     setActiveLetters([]);
     setFeedback(null);
     setMicError('');
     setGameState('SPELLING');
-    await saveProgress(unitId, 'sight-word-glow', 0, 0);
+    await syncProgressToDB(0);
   };
 
   const currentWord = words[currentIndex] || "";
@@ -351,10 +237,10 @@ const SightWordGlow = () => {
       setFeedback('correct');
       setIsListening(false);
       setGameState('FEEDBACK');
-      const nextPoints = Math.min(100, points + 3);
+      const nextPoints = clampPoints(scoreRef.current + 3);
       setPoints(prev => {
         const next = clampPoints(prev + 3);
-        saveProgress(unitId, 'sight-word-glow', next, next);
+        syncProgressToDB(next);
         return next;
       });
       setTimeout(() => {
@@ -372,7 +258,11 @@ const SightWordGlow = () => {
     } else {
       new Audio('/audio/wrong.mp3').play().catch(()=>{});
       setFeedback('wrong-speech');
-      setPoints(prev => clampPoints(prev - 3)); 
+      setPoints(prev => {
+        const next = clampPoints(prev - 3);
+        syncProgressToDB(next);
+        return next;
+      }); 
       setTimeout(() => { 
         setFeedback(null); 
         setGameState('SPEAKING');
@@ -444,7 +334,7 @@ const SightWordGlow = () => {
                 <div className="flex items-center gap-8 flex-nowrap">
                   <button
                     onClick={() => speakWord(currentWord)}
-                    disabled={isSpeaking || !currentWord}
+                    disabled={!currentWord}
                     className={`p-8 rounded-full border-b-8 shadow-xl transition-all ${isSpeaking ? 'bg-cyan-500 animate-pulse' : 'bg-slate-700 border-slate-900'}`}
                   >
                     {isSpeaking ? <FaSpinner className="animate-spin" size={40} /> : <FaVolumeUp size={40} />}
