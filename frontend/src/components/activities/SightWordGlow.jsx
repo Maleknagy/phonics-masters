@@ -27,6 +27,7 @@ const SightWordGlow = () => {
   const gameStateRef = useRef('LOADING');
   const TARGET_SCORE = 100;
   const hasAzureSpeechConfig = Boolean(import.meta.env.VITE_AZURE_KEY && import.meta.env.VITE_AZURE_REGION);
+  const clampPoints = (value) => Math.max(0, Math.min(TARGET_SCORE, Number(value) || 0));
 
   const normalizeSpeech = (text = '') => text.toLowerCase().replace(/[^a-z\s'-]/g, '').trim();
   const escapeXml = (text = '') => text
@@ -74,14 +75,12 @@ const SightWordGlow = () => {
   const speakBrowserFallback = (text) => {
     if (!text || !window.speechSynthesis) return false;
 
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'en-US';
-    utterance.rate = 0.85;
-    utterance.onend = () => {
-      clearSpeechSafetyTimeout();
-      setIsSpeaking(false);
-    };
-    utterance.onerror = () => {
+    let started = false;
+    let failedOver = false;
+
+    const failOverToAzure = () => {
+      if (failedOver) return;
+      failedOver = true;
       const azureStarted = speakWithAzure(text);
       if (!azureStarted) {
         clearSpeechSafetyTimeout();
@@ -89,9 +88,31 @@ const SightWordGlow = () => {
       }
     };
 
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'en-US';
+    utterance.rate = 0.85;
+    utterance.onstart = () => {
+      started = true;
+    };
+    utterance.onend = () => {
+      clearSpeechSafetyTimeout();
+      setIsSpeaking(false);
+    };
+    utterance.onerror = () => {
+      failOverToAzure();
+    };
+
     window.speechSynthesis.cancel();
     window.speechSynthesis.resume();
     window.speechSynthesis.speak(utterance);
+
+    setTimeout(() => {
+      if (!started) {
+        window.speechSynthesis.cancel();
+        failOverToAzure();
+      }
+    }, 1200);
+
     return true;
   };
 
@@ -164,11 +185,11 @@ const SightWordGlow = () => {
           let startPoints = 0;
           if (pData) {
             const gameProg = pData.find(p => p.game_type === 'sight-word-glow' || p.game_type === 'sight_word_glow');
-            startPoints = Math.min(100, gameProg?.points || gameProg?.progress_percent || 0);
+            startPoints = clampPoints(gameProg?.points || gameProg?.progress_percent || 0);
           }
 
           setWords(enduranceList);
-          setPoints(startPoints);
+          setPoints(clampPoints(startPoints));
           setGameState('SPELLING');
           
           // REMOVED: Auto-speech trigger on init
@@ -228,17 +249,7 @@ const SightWordGlow = () => {
     setIsSpeaking(true);
     speechSafetyTimeoutRef.current = setTimeout(() => setIsSpeaking(false), 8000);
 
-    if (window.speechSynthesis) {
-      const started = speakBrowserFallback(text);
-      if (started) {
-        return;
-      }
-
-      const azureStarted = speakWithAzure(text);
-      if (!azureStarted) {
-        clearSpeechSafetyTimeout();
-        setIsSpeaking(false);
-      }
+    if (window.speechSynthesis && speakBrowserFallback(text)) {
       return;
     }
 
@@ -252,7 +263,7 @@ const SightWordGlow = () => {
   const handleRestartFromZero = async () => {
     stopListeningSession();
     resetSpeakingState();
-    setPoints(0);
+    setPoints(clampPoints(0));
     setCurrentIndex(0);
     setActiveLetters([]);
     setFeedback(null);
@@ -377,7 +388,7 @@ const SightWordGlow = () => {
       setGameState('FEEDBACK');
       const nextPoints = Math.min(100, points + 3);
       setPoints(prev => {
-        const next = Math.min(100, prev + 3);
+        const next = clampPoints(prev + 3);
         saveProgress(unitId, 'sight-word-glow', next, next);
         return next;
       });
@@ -396,7 +407,7 @@ const SightWordGlow = () => {
     } else {
       new Audio('/audio/wrong.mp3').play().catch(()=>{});
       setFeedback('wrong-speech');
-      setPoints(prev => Math.max(0, prev - 3)); 
+      setPoints(prev => clampPoints(prev - 3)); 
       setTimeout(() => { 
         setFeedback(null); 
         setGameState('SPEAKING');
@@ -419,7 +430,7 @@ const SightWordGlow = () => {
            <span className="text-[10px] font-black uppercase mt-2 text-cyan-300">Goal: 100 Stars</span>
         </div>
         <div className="bg-indigo-600 px-6 py-3 rounded-2xl flex items-center gap-3 border-b-4 border-indigo-900 shadow-xl min-w-[110px] justify-center">
-          <FaStar className="text-yellow-400" /> <span className="text-2xl font-black">{points}</span>
+          <FaStar className="text-yellow-400" /> <span className="text-2xl font-black">{clampPoints(points)}</span>
         </div>
       </div>
 
@@ -465,7 +476,7 @@ const SightWordGlow = () => {
 
             {/* ACTION AREA */}
             <div className="min-h-48 flex flex-col items-center justify-center gap-5">
-                <div className="flex items-center gap-8">
+                <div className="flex items-center gap-8 flex-nowrap">
                   <button
                     onClick={() => speakAzure(currentWord)}
                     disabled={isSpeaking || !currentWord}
