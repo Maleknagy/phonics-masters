@@ -21,7 +21,6 @@ const SightWordGlow = () => {
   const [micError, setMicError] = useState('');
 
   const synthesizerRef = useRef(null);
-  const recognitionRef = useRef(null);
   const azureRecognizerRef = useRef(null);
   const speechSafetyTimeoutRef = useRef(null);
   const gameStateRef = useRef('LOADING');
@@ -47,10 +46,6 @@ const SightWordGlow = () => {
   const stopListeningSession = () => {
     setIsListening(false);
 
-    if (recognitionRef.current) {
-      try { recognitionRef.current.abort(); } catch (e) {}
-    }
-
     if (azureRecognizerRef.current) {
       try { azureRecognizerRef.current.close(); } catch (e) {}
       azureRecognizerRef.current = null;
@@ -73,47 +68,40 @@ const SightWordGlow = () => {
   };
 
   const speakBrowserFallback = (text) => {
-    if (!text || !window.speechSynthesis) return false;
+    return new Promise((resolve) => {
+      if (!text || !window.speechSynthesis) {
+        resolve(false);
+        return;
+      }
 
-    let started = false;
-    let failedOver = false;
+      let started = false;
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'en-US';
+      utterance.rate = 0.85;
 
-    const failOverToAzure = () => {
-      if (failedOver) return;
-      failedOver = true;
-      const azureStarted = speakWithAzure(text);
-      if (!azureStarted) {
+      utterance.onstart = () => {
+        started = true;
+        resolve(true);
+      };
+      utterance.onend = () => {
         clearSpeechSafetyTimeout();
         setIsSpeaking(false);
-      }
-    };
+      };
+      utterance.onerror = () => {
+        if (!started) resolve(false);
+      };
 
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'en-US';
-    utterance.rate = 0.85;
-    utterance.onstart = () => {
-      started = true;
-    };
-    utterance.onend = () => {
-      clearSpeechSafetyTimeout();
-      setIsSpeaking(false);
-    };
-    utterance.onerror = () => {
-      failOverToAzure();
-    };
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.resume();
+      window.speechSynthesis.speak(utterance);
 
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.resume();
-    window.speechSynthesis.speak(utterance);
-
-    setTimeout(() => {
-      if (!started) {
-        window.speechSynthesis.cancel();
-        failOverToAzure();
-      }
-    }, 1200);
-
-    return true;
+      setTimeout(() => {
+        if (!started) {
+          window.speechSynthesis.cancel();
+          resolve(false);
+        }
+      }, 1200);
+    });
   };
 
   const speakWithAzure = (text) => {
@@ -162,6 +150,41 @@ const SightWordGlow = () => {
     return true;
   };
 
+  const speakWord = async (text) => {
+    if (!text || isSpeaking) return;
+    resetSpeakingState();
+    setIsSpeaking(true);
+    speechSafetyTimeoutRef.current = setTimeout(() => setIsSpeaking(false), 8000);
+
+    const audio = new Audio(`/audio/${encodeURIComponent(text.toLowerCase().trim())}.mp3`);
+    let playedAudio = false;
+
+    try {
+      await new Promise((resolve, reject) => {
+        audio.onplay = () => { playedAudio = true; };
+        audio.onended = () => {
+          clearSpeechSafetyTimeout();
+          setIsSpeaking(false);
+          resolve();
+        };
+        audio.onerror = () => reject(new Error('audio-missing'));
+        audio.play().catch(reject);
+      });
+      if (playedAudio) return;
+    } catch (error) {
+      // fall through to speech synthesis
+    }
+
+    const browserStarted = await speakBrowserFallback(text);
+    if (browserStarted) return;
+
+    const azureStarted = speakWithAzure(text);
+    if (!azureStarted) {
+      clearSpeechSafetyTimeout();
+      setIsSpeaking(false);
+    }
+  };
+
   useEffect(() => {
     gameStateRef.current = gameState;
   }, [gameState]);
@@ -200,29 +223,6 @@ const SightWordGlow = () => {
     }
     initGame();
 
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.lang = 'en-US';
-      recognitionRef.current.continuous = false;
-      recognitionRef.current.interimResults = false;
-      recognitionRef.current.onstart = () => setIsListening(true);
-      recognitionRef.current.onend = () => setIsListening(false);
-      recognitionRef.current.onerror = (event) => {
-        setIsListening(false);
-        if (event?.error === 'not-allowed') {
-          setMicError('Microphone permission is blocked. Enable mic access and retry.');
-          return;
-        }
-        if (event?.error === 'aborted') return;
-        recognizeWithAzureOnce();
-      };
-      recognitionRef.current.onresult = (event) => {
-        const transcript = event.results[0][0].transcript.toLowerCase().trim();
-        handleSpeechResult(transcript);
-      };
-    }
-
     return () => {
       clearSpeechSafetyTimeout();
       stopListeningSession();
@@ -242,23 +242,6 @@ const SightWordGlow = () => {
     resetSpeakingState();
     setMicError('');
   }, [currentIndex]);
-
-  const speakAzure = (text) => {
-    if (!text || isSpeaking) return;
-    resetSpeakingState();
-    setIsSpeaking(true);
-    speechSafetyTimeoutRef.current = setTimeout(() => setIsSpeaking(false), 8000);
-
-    if (window.speechSynthesis && speakBrowserFallback(text)) {
-      return;
-    }
-
-    const azureStarted = speakWithAzure(text);
-    if (!azureStarted) {
-      clearSpeechSafetyTimeout();
-      setIsSpeaking(false);
-    }
-  };
 
   const handleRestartFromZero = async () => {
     stopListeningSession();
@@ -344,26 +327,8 @@ const SightWordGlow = () => {
 
     setMicError('');
 
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setMicError('Microphone API is not supported in this browser.');
-      return;
-    }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach(track => track.stop());
-    } catch (error) {
-      setMicError('Microphone permission is blocked. Enable mic access and retry.');
-      return;
-    }
-
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.start();
-      } catch (e) {
-        try { recognitionRef.current.stop(); } catch (_) {}
-        recognizeWithAzureOnce();
-      }
+    if (!hasAzureSpeechConfig) {
+      setMicError('Mic service is not configured.');
       return;
     }
 
@@ -478,7 +443,7 @@ const SightWordGlow = () => {
             <div className="min-h-48 flex flex-col items-center justify-center gap-5">
                 <div className="flex items-center gap-8 flex-nowrap">
                   <button
-                    onClick={() => speakAzure(currentWord)}
+                    onClick={() => speakWord(currentWord)}
                     disabled={isSpeaking || !currentWord}
                     className={`p-8 rounded-full border-b-8 shadow-xl transition-all ${isSpeaking ? 'bg-cyan-500 animate-pulse' : 'bg-slate-700 border-slate-900'}`}
                   >
