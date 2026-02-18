@@ -18,10 +18,29 @@ const SightWordGlow = () => {
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [feedback, setFeedback] = useState(null);
+  const [micError, setMicError] = useState('');
 
   const synthesizerRef = useRef(null);
   const recognitionRef = useRef(null);
   const TARGET_SCORE = 100;
+  const hasAzureSpeechConfig = Boolean(import.meta.env.VITE_AZURE_KEY && import.meta.env.VITE_AZURE_REGION);
+
+  const normalizeSpeech = (text = '') => text.toLowerCase().replace(/[^a-z\s'-]/g, '').trim();
+
+  const speakBrowserFallback = (text) => {
+    if (!text || !window.speechSynthesis) {
+      setIsSpeaking(false);
+      return;
+    }
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'en-US';
+    utterance.rate = 0.85;
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+  };
 
   useEffect(() => {
     async function initGame() {
@@ -71,6 +90,9 @@ const SightWordGlow = () => {
 
     return () => {
       if (synthesizerRef.current) synthesizerRef.current.close();
+      if (recognitionRef.current && recognitionRef.current.abort) {
+        try { recognitionRef.current.abort(); } catch (e) {}
+      }
     };
   }, [unitId]);
 
@@ -78,10 +100,22 @@ const SightWordGlow = () => {
     if (!text || isSpeaking) return;
     setIsSpeaking(true);
 
-    const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(
-      import.meta.env.VITE_AZURE_KEY, 
-      import.meta.env.VITE_AZURE_REGION
-    );
+    if (!hasAzureSpeechConfig) {
+      speakBrowserFallback(text);
+      return;
+    }
+
+    let speechConfig;
+    try {
+      speechConfig = SpeechSDK.SpeechConfig.fromSubscription(
+        import.meta.env.VITE_AZURE_KEY,
+        import.meta.env.VITE_AZURE_REGION
+      );
+      speechConfig.speechSynthesisVoiceName = 'en-US-JennyNeural';
+    } catch (error) {
+      speakBrowserFallback(text);
+      return;
+    }
 
     const ssml = `
       <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US">
@@ -102,8 +136,8 @@ const SightWordGlow = () => {
         synthesizer.close();
       },
       error => {
-        setIsSpeaking(false);
         synthesizer.close();
+        speakBrowserFallback(text);
       }
     );
   };
@@ -125,24 +159,93 @@ const SightWordGlow = () => {
     }
   };
 
-  const startListening = () => {
-    if (!recognitionRef.current || isListening || gameState !== 'SPEAKING') return;
-    try { recognitionRef.current.start(); } catch (e) { recognitionRef.current.stop(); }
+  const recognizeWithAzureOnce = () => {
+    if (!hasAzureSpeechConfig) {
+      setMicError('Microphone is unavailable in this browser.');
+      return;
+    }
+
+    try {
+      const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(
+        import.meta.env.VITE_AZURE_KEY,
+        import.meta.env.VITE_AZURE_REGION
+      );
+      const recognizer = new SpeechSDK.SpeechRecognizer(speechConfig, SpeechSDK.AudioConfig.fromDefaultMicrophoneInput());
+      setIsListening(true);
+
+      recognizer.recognizeOnceAsync(
+        (result) => {
+          setIsListening(false);
+          if (result.reason === SpeechSDK.ResultReason.RecognizedSpeech && result.text) {
+            handleSpeechResult(result.text);
+          } else {
+            setMicError('No speech detected. Try again.');
+          }
+          recognizer.close();
+        },
+        () => {
+          setIsListening(false);
+          setMicError('Mic connection failed. Check permission and retry.');
+          recognizer.close();
+        }
+      );
+    } catch (error) {
+      setIsListening(false);
+      setMicError('Mic connection failed. Check permission and retry.');
+    }
+  };
+
+  const startListening = async () => {
+    if (isListening || gameState !== 'SPEAKING') return;
+
+    setMicError('');
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setMicError('Microphone API is not supported in this browser.');
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach(track => track.stop());
+    } catch (error) {
+      setMicError('Microphone permission is blocked. Enable mic access and retry.');
+      return;
+    }
+
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.start();
+      } catch (e) {
+        try { recognitionRef.current.stop(); } catch (_) {}
+        recognizeWithAzureOnce();
+      }
+      return;
+    }
+
+    recognizeWithAzureOnce();
   };
 
   const handleSpeechResult = (spokenWord) => {
-    const target = currentWord.toLowerCase().trim();
-    if (spokenWord.includes(target) || target.includes(spokenWord)) {
+    const target = normalizeSpeech(currentWord);
+    const spoken = normalizeSpeech(spokenWord);
+    if (!spoken || !target) {
+      setMicError('No speech detected. Try again.');
+      return;
+    }
+
+    if (spoken.includes(target) || target.includes(spoken)) {
       new Audio('/audio/correct.mp3').play().catch(()=>{});
       setFeedback('correct');
       setGameState('FEEDBACK');
+      const nextPoints = Math.min(100, points + 3);
       setPoints(prev => {
         const next = prev + 3;
         saveProgress(unitId, 'sight-word-glow', Math.min(100, next), next);
         return next;
       });
       setTimeout(() => {
-        if (points + 3 >= TARGET_SCORE) {
+        if (nextPoints >= TARGET_SCORE) {
           setGameState('FINISHED');
           return;
         }
@@ -241,6 +344,7 @@ const SightWordGlow = () => {
                                 <FaMicrophone size={56} />
                             </motion.button>
                             <p className="mt-4 font-black uppercase text-xs tracking-widest text-green-400">Tap mic and read!</p>
+                        {micError && <p className="mt-2 text-xs font-bold text-red-300">{micError}</p>}
                         </motion.div>
                     )}
                     {feedback && feedback !== 'wrong-letter' && (
